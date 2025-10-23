@@ -1,5 +1,5 @@
 ---
-# Копируй в vars/users.yml для локалки или используй vault-версию
+# Копируй в vars/users.yml для локалки или используй vault-версию.
 ssh_keys_dir: "{{ playbook_dir }}/files/ssh_keys"
 
 # Список пользователей, которых хотим создать
