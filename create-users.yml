@@ -1,0 +1,102 @@
+---
+- name: Create users with SSH keys (idempotent)
+  hosts: all
+  become: yes
+  vars_files:
+    - vars/users.yml
+  vars:
+    # дефолт на случай, если ssh_keys_dir не задан в vars/users.yml
+    ssh_keys_dir_default: "{{ playbook_dir }}/files/ssh_keys"
+
+  pre_tasks:
+    - name: Resolve ssh_keys_dir with safe default
+      set_fact:
+        _ssh_keys_dir: "{{ (ssh_keys_dir | default(ssh_keys_dir_default)) | realpath }}"
+
+  tasks:
+    - name: Ensure system groups exist (from users' groups)
+      vars:
+        group_list: >-
+          {{
+            users
+            | map(attribute='groups')
+            | select('defined')
+            | map('regex_replace', '\s+', '')
+            | map('split', ',')
+            | list | flatten
+            | reject('equalto', '')
+            | unique | list
+          }}
+      loop: "{{ group_list }}"
+      loop_control:
+        loop_var: group_name
+      ansible.builtin.group:
+        name: "{{ group_name }}"
+        state: present
+      when: group_name != ''
+
+    - name: Create user accounts (home, shell, groups) — password set only on create
+      loop: "{{ users }}"
+      loop_control:
+        loop_var: user
+        label: "{{ user.name }}"
+      ansible.builtin.user:
+        name: "{{ user.name }}"
+        comment: "{{ user.full_name | default('') }}"
+        shell: "{{ user.shell | default('/bin/bash') }}"
+        groups: "{{ user.groups | default(omit) }}"
+        create_home: yes
+        state: present
+        password: "{{ (user.password is defined) | ternary((user.password | password_hash('sha512', user.name)), omit) }}"
+        update_password: on_create
+
+    - name: Ensure ~/.ssh directory exists with correct permissions
+      loop: "{{ users }}"
+      loop_control:
+        loop_var: user
+        label: "{{ user.name }}"
+      ansible.builtin.file:
+        path: "/home/{{ user.name }}/.ssh"
+        state: directory
+        owner: "{{ user.name }}"
+        group: "{{ user.name }}"
+        mode: "0700"
+
+    # === МНОГОКЛЮЧЕВОЙ ВАРИАНТ ===
+    # 1) Собрать пары "user|путь_к_ключу" для всех пользователей
+    - name: Build list of user|keypath pairs
+      vars:
+        q1: "{{ query('fileglob', _ssh_keys_dir + '/*' + user.name + '.pub') }}"
+        q2: "{{ query('fileglob', _ssh_keys_dir + '/*_' + user.name + '.pub') }}"
+        q3: "{{ query('fileglob', _ssh_keys_dir + '/*-' + user.name + '.pub') }}"
+        user_keys: "{{ (q1 + q2 + q3) | unique }}"
+      set_fact:
+        user_key_pairs: >-
+          {{ (user_key_pairs | default([]))
+             + (user_keys | map('regex_replace', '^(.*)$', user.name ~ '|\1') | list) }}
+      loop: "{{ users }}"
+      loop_control:
+        loop_var: user
+        label: "{{ user.name }}"
+
+    # 2) Добавить все найденные ключи (по одной записи в authorized_keys на ключ)
+    - name: Add authorized_key(s) from collected pairs
+      ansible.builtin.authorized_key:
+        user: "{{ (item.split('|'))[0] }}"
+        key: "{{ lookup('file', (item.split('|'))[1]) }}"
+        state: present
+        manage_dir: false
+        path: "/home/{{ (item.split('|'))[0] }}/.ssh/authorized_keys"
+      loop: "{{ user_key_pairs | default([]) }}"
+      loop_control:
+        label: "{{ (item.split('|'))[0] }} -> {{ (item.split('|'))[1] | basename }}"
+
+    - name: Allow passwordless sudo for users in sudo or wheel group
+      copy:
+        dest: /etc/sudoers.d/99-nopasswd
+        content: |
+          %sudo ALL=(ALL) NOPASSWD:ALL
+          %wheel ALL=(ALL) NOPASSWD:ALL
+        owner: root
+        group: root
+        mode: '0440'

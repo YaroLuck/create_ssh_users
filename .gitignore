@@ -1,0 +1,19 @@
+# Python venv / IDE
+.venv/
+.idea/
+*.iml
+__pycache__/
+
+# Ansible inventories (реальные)
+inventories/*/hosts.ini
+inventory.ini
+
+# SSH keys (паблики можно, но лучше не светить user/host)
+files/ssh_keys/*
+
+# Локальные/плейн переменные
+vars/users.yml
+
+# Vault-пароли (локальные)
+.vault_pass
+.vault_pass.*
