@@ -1,0 +1,19 @@
+---
+# Копируй в vars/users.yml для локалки или используй vault-версию
+ssh_keys_dir: "{{ playbook_dir }}/files/ssh_keys"
+
+# Список пользователей, которых хотим создать
+# Поля:
+#  - name: логин
+#  - full_name: (опционально) GECOS / комментарий
+#  - shell: (опционально) /bin/bash по умолчанию
+#  - groups: (опционально) список групп
+#  - password: plain text пароль (лучше зашифровать vault'ом) пароль можно опустить — тогда пользователь создаётся без пароля
+
+users:
+  - name: some_user_name
+    full_name: "Иван Иванов"
+    shell: /bin/bash
+    groups: "sudo,wheel,docker"
+    # password: "CHANGE_ME"   # не хранить в гите!
+
